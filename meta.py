@@ -98,11 +98,11 @@ class Meta(nn.Module):
                 corrects[0] = corrects[0] + correct
 
             # this is the loss and accuracy after the first update
+            # [setsz, nway]
+            logits_q = self.net(x_qry[i], fast_weights, bn_training=True)
+            loss_q = F.cross_entropy(logits_q, y_qry[i])
+            losses_q[1] += loss_q
             with torch.no_grad():
-                # [setsz, nway]
-                logits_q = self.net(x_qry[i], fast_weights, bn_training=True)
-                loss_q = F.cross_entropy(logits_q, y_qry[i])
-                losses_q[1] += loss_q
                 # [setsz]
                 pred_q = F.softmax(logits_q, dim=1).argmax(dim=1)
                 correct = torch.eq(pred_q, y_qry[i]).sum().item()
@@ -113,7 +113,7 @@ class Meta(nn.Module):
                 logits = self.net(x_spt[i], fast_weights, bn_training=True)
                 loss = F.cross_entropy(logits, y_spt[i])
                 # 2. compute grad on theta_pi
-                grad = torch.autograd.grad(loss, fast_weights)
+                grad = torch.autograd.grad(loss, fast_weights, create_graph=True, retain_graph=True)
                 # 3. theta_pi = theta_pi - train_lr * grad
                 fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, fast_weights)))
 
@@ -144,7 +144,7 @@ class Meta(nn.Module):
 
         accs = np.array(corrects) / (querysz * task_num)
 
-        return accs
+        return loss_q.item(), accs
 
 
     def finetunning(self, x_spt, y_spt, x_qry, y_qry):
@@ -169,7 +169,7 @@ class Meta(nn.Module):
         # 1. run the i-th task and compute loss for k=0
         logits = net(x_spt)
         loss = F.cross_entropy(logits, y_spt)
-        grad = torch.autograd.grad(loss, net.parameters())
+        grad = torch.autograd.grad(loss, net.parameters(), create_graph=True, retain_graph=True)
         fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, net.parameters())))
 
         # this is the loss and accuracy before first update
@@ -183,10 +183,12 @@ class Meta(nn.Module):
             corrects[0] = corrects[0] + correct
 
         # this is the loss and accuracy after the first update
+        
+        # [setsz, nway]
+        logits_q = net(x_qry, fast_weights, bn_training=True)
+        loss_q = F.cross_entropy(logits_q, y_qry)
+        # [setsz]
         with torch.no_grad():
-            # [setsz, nway]
-            logits_q = net(x_qry, fast_weights, bn_training=True)
-            # [setsz]
             pred_q = F.softmax(logits_q, dim=1).argmax(dim=1)
             # scalar
             correct = torch.eq(pred_q, y_qry).sum().item()
@@ -197,7 +199,7 @@ class Meta(nn.Module):
             logits = net(x_spt, fast_weights, bn_training=True)
             loss = F.cross_entropy(logits, y_spt)
             # 2. compute grad on theta_pi
-            grad = torch.autograd.grad(loss, fast_weights)
+            grad = torch.autograd.grad(loss, fast_weights, create_graph=True, retain_graph=True)
             # 3. theta_pi = theta_pi - train_lr * grad
             fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, fast_weights)))
 
@@ -215,7 +217,7 @@ class Meta(nn.Module):
 
         accs = np.array(corrects) / querysz
 
-        return accs
+        return loss_q.item(), accs
 
 
 
