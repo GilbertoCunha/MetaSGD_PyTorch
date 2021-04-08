@@ -6,6 +6,7 @@ import numpy as np
 import scipy.stats
 import argparse
 import torch
+import wandb
 
 
 def mean_confidence_interval(accs, confidence=0.95):
@@ -35,18 +36,19 @@ def evaluate(model, dataset, device, desc="Eval Test"):
 
 
 def main():
-
+    # Manually seed torch and numpy for reproducible results
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
     np.random.seed(args.seed)
 
+    # Open csv file to write for metric logging
     try:
         f = open("results.csv", "w")
     except FileNotFoundError:
         f = open("results.csv", "x")
-
     f.write("Steps,tr_loss,tr_acc,val_loss,val_acc,te_loss,te_acc\n")
 
+    # Define the model
     config = [
         ('conv2d', [32, 3, args.kernel_size, args.kernel_size, 1, 0]),
         ('relu', [True]),
@@ -69,16 +71,20 @@ def main():
         ('linear', [args.n_way, 32 * (68 - 2 * (args.kernel_size // 2) * args.vvs_depth) ** 2])
     ]
 
+    # Choose PyTorch device and create the model
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     model = Meta(args, config).to(device)
+    wandb.watch(model)
 
-    tmp = filter(lambda x: x.requires_grad, model.parameters())
-    num = sum(map(lambda x: np.prod(x.shape), tmp))
+    # Print additional information on the model
     if args.verbose:
+        tmp = filter(lambda x: x.requires_grad, model.parameters())
+        num = sum(map(lambda x: np.prod(x.shape), tmp))
         print(args)
         print(model)
         print('Total trainable tensors:', num)
 
+    # Create datasets
     # batchsz here means total episode number
     print("\nGathering Datasets:")
     mini = MiniImagenet('miniimagenet/', mode='train', n_way=args.n_way, k_shot=args.k_spt,
@@ -91,9 +97,9 @@ def main():
                              k_query=args.k_qry, batchsz=args.eval_steps, resize=args.imgsz)
 
     print("\nMeta-Training:")
-    pruning_factor = 0
-    best_tr_acc, best_val_acc, best_test_acc = 0, 0, 0
-    epoch_bar = tqdm(range(args.epoch//10000), desc="Training", total=len(range(args.epoch//10)))
+    pruning_factor = args.pruning
+    best_tr_acc, best_val_acc, best_te_acc = 0, 0, 0
+    epoch_bar = tqdm(range(args.epoch//10000), desc="Training", total=len(range(args.epoch//10000)))
     for epoch in epoch_bar:
         # fetch meta_batchsz num of episode each time
         db = DataLoader(mini, args.task_num, shuffle=True, num_workers=1, pin_memory=True)
@@ -114,35 +120,39 @@ def main():
                 tr_acc, tr_loss = evaluate(model, mini_train_eval, device, "Eval Train")
 
                 # Update Task tqdm bar
-                task_bar.set_postfix({
+                metrics = {
                     'step': total_steps, 
                     'tr acc': tr_acc,
                     'val_acc': val_acc,
                     'te_acc': te_acc
-                })
+                }
+                task_bar.set_postfix(metrics)
+                metrics['tr_loss'] = tr_loss
+                metrics['val_loss'] = val_loss
+                metrics['te_loss'] = te_loss
+                wandb.log(metrics)
                 f.write(f"{total_steps},{tr_loss},{tr_acc},{val_loss},{val_acc},{te_loss},{te_acc}\n")
 
                 # Update best metrics
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
-                    pruning_factor = 0
+                    pruning_factor = args.pruning
                 else:
-                    pruning_factor += 1
-                best_test_acc = max(te_acc, best_test_acc)
+                    pruning_factor -= 1
+                best_te_acc = max(te_acc, best_te_acc)
                 best_tr_acc = max(tr_acc, best_tr_acc)
 
-                if pruning_factor == args.pruning:
-                    break
+                if pruning_factor == 0: break
 
                 # Update tqdm 
                 epoch_bar.set_postfix({
-                    'best_te_acc': best_test_acc,
-                    'best_val_acc': best_val_acc,
-                    'pruning': pruning_factor
+                    'b_tr_acc': best_tr_acc,
+                    'b_val_acc': best_val_acc,
+                    'b_te_acc': best_te_acc,
+                    'prune': pruning_factor
                 })
 
-        if pruning_factor == args.pruning:
-            break
+        if pruning_factor == 0: break
 
     f.close()
 
@@ -150,7 +160,7 @@ def main():
 if __name__ == '__main__':
 
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('--epoch', type=int, help='epoch number', default=60000)
+    argparser.add_argument('--epoch', type=int, help='epoch number', default=500000)
     argparser.add_argument('--n_way', type=int, help='n way', default=5)
     argparser.add_argument('--k_spt', type=int, help='k shot for support set', default=1)
     argparser.add_argument('--k_qry', type=int, help='k shot for query set', default=15)
@@ -169,7 +179,23 @@ if __name__ == '__main__':
     argparser.add_argument('--pruning', type=int, help='stop the training after this number of evaluations without accuracy increase', default=12)
     argparser.add_argument('--verbose', type=int, help='print additional information', default=0)
     argparser.add_argument('--seed', type=int, help='seed for reproducible results', default=42)
+    argparser.add_argument('--wandb_project', type=str, help='name of wandb project to log', default="Meta-SGD")
 
     args = argparser.parse_args()
+
+    # Setup Weights and Biases logger and config hyperparams
+    wandb.init(project=args.wandb_project)
+    config = wandb.config
+    config.n_way = args.n_way
+    config.k_spt = args.k_spt
+    config.k_qry = args.k_qry
+    config.task_num = args.task_num
+    config.meta_lr = args.meta_lr
+    config.update_lr = args.update_lr
+    config.update_step = args.update_step
+    config.update_step_step = args.update_step_test
+    config.ret_channels = args.ret_channels
+    config.vvs_depth = args.vvs_depth
+    config.kernel_size = args.kernel_size
 
     main()

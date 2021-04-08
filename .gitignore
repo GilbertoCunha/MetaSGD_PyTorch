@@ -4,3 +4,4 @@ omniglot
 .idea
 __pycache__
 results
+wandb
