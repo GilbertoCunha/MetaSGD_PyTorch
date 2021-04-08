@@ -1,8 +1,6 @@
+from torch.nn import functional as F
+from torch import nn
 import  torch
-from    torch import nn
-from    torch.nn import functional as F
-import  numpy as np
-
 
 
 class Learner(nn.Module):
@@ -27,7 +25,7 @@ class Learner(nn.Module):
         # running_mean and running_var
         self.vars_bn = nn.ParameterList()
 
-        for i, (name, param) in enumerate(self.config):
+        for _, (name, param) in enumerate(self.config):
             if name == 'conv2d':
                 # [ch_out, ch_in, kernelsz, kernelsz]
                 w = nn.Parameter(torch.ones(*param[:4]))

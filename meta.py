@@ -1,14 +1,10 @@
-import  torch
-from    torch import nn
-from    torch import optim
-from    torch.nn import functional as F
-from    torch.utils.data import TensorDataset, DataLoader
-from    torch import optim
-import  numpy as np
-
-from    learner import Learner
-from    copy import deepcopy
-
+from torch.nn import functional as F
+from learner import Learner
+from copy import deepcopy
+from torch import optim
+from torch import nn
+import numpy as np
+import torch
 
 
 class Meta(nn.Module):
@@ -22,7 +18,6 @@ class Meta(nn.Module):
         """
         super(Meta, self).__init__()
 
-        self.update_lr = args.update_lr
         self.meta_lr = args.meta_lr
         self.n_way = args.n_way
         self.k_spt = args.k_spt
@@ -31,14 +26,20 @@ class Meta(nn.Module):
         self.update_step = args.update_step
         self.update_step_test = args.update_step_test
 
-
         self.net = Learner(config, args.imgc, args.imgsz)
-        self.meta_optim = optim.Adam(self.net.parameters(), lr=self.meta_lr)
 
+        # Create learnable per parameter learning rate
+        self.update_lr = nn.ParameterList()
+        for p in self.net.parameters():
+            p_lr = args.update_lr * torch.ones_like(p)
+            self.update_lr.append(nn.Parameter(p_lr))
 
+        # Define outer optimizer (also optimize lr)
+        params = list(self.net.parameters()) + list(self.update_lr)
+        self.meta_optim = optim.Adam(params, lr=self.meta_lr)
 
-
-    def clip_grad_by_norm_(self, grad, max_norm):
+    @staticmethod
+    def clip_grad_by_norm_(grad, max_norm):
         """
         in-place gradient clipping.
         :param grad: list of gradients
@@ -84,7 +85,7 @@ class Meta(nn.Module):
             logits = self.net(x_spt[i], vars=None, bn_training=True)
             loss = F.cross_entropy(logits, y_spt[i])
             grad = torch.autograd.grad(loss, self.net.parameters())
-            fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, self.net.parameters())))
+            fast_weights = list(map(lambda p: p[1] - p[2] * p[0], zip(grad, self.net.parameters(), self.update_lr)))
 
             # this is the loss and accuracy before first update
             with torch.no_grad():
@@ -115,7 +116,7 @@ class Meta(nn.Module):
                 # 2. compute grad on theta_pi
                 grad = torch.autograd.grad(loss, fast_weights, create_graph=True, retain_graph=True)
                 # 3. theta_pi = theta_pi - train_lr * grad
-                fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, fast_weights)))
+                fast_weights = list(map(lambda p: p[1] - p[2] * p[0], zip(grad, fast_weights, self.update_lr)))
 
                 logits_q = self.net(x_qry[i], fast_weights, bn_training=True)
                 # loss_q will be overwritten and just keep the loss_q on last update step.
@@ -170,7 +171,7 @@ class Meta(nn.Module):
         logits = net(x_spt)
         loss = F.cross_entropy(logits, y_spt)
         grad = torch.autograd.grad(loss, net.parameters(), create_graph=True, retain_graph=True)
-        fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, net.parameters())))
+        fast_weights = list(map(lambda p: p[1] - p[2] * p[0], zip(grad, net.parameters(), self.update_lr)))
 
         # this is the loss and accuracy before first update
         with torch.no_grad():
@@ -201,7 +202,7 @@ class Meta(nn.Module):
             # 2. compute grad on theta_pi
             grad = torch.autograd.grad(loss, fast_weights, create_graph=True, retain_graph=True)
             # 3. theta_pi = theta_pi - train_lr * grad
-            fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, fast_weights)))
+            fast_weights = list(map(lambda p: p[1] - p[2] * p[0], zip(grad, fast_weights, self.update_lr)))
 
             logits_q = net(x_qry, fast_weights, bn_training=True)
             # loss_q will be overwritten and just keep the loss_q on last update step.

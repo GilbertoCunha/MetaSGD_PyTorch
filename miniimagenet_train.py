@@ -15,19 +15,35 @@ def mean_confidence_interval(accs, confidence=0.95):
     return m, h
 
 
+def evaluate(model, dataset, device, desc="Eval Test"):
+    db = DataLoader(dataset, 1, shuffle=True, num_workers=1, pin_memory=True)
+    all_accs, losses = [], []
+
+    eval_bar = tqdm(db, desc=desc, total=len(db), leave=False)
+    for x_spt, y_spt, x_qry, y_qry in eval_bar:
+        x_spt, y_spt, x_qry, y_qry = x_spt.squeeze(0).to(device), y_spt.squeeze(0).to(device), \
+                                        x_qry.squeeze(0).to(device), y_qry.squeeze(0).to(device)
+        loss, accs = model.finetunning(x_spt, y_spt, x_qry, y_qry)
+        all_accs.append(accs)
+        losses.append(loss)
+
+    accs = list(map(lambda a: a[-1], all_accs))
+
+    return accs, losses
+
+
 def main():
 
-    torch.manual_seed(222)
-    torch.cuda.manual_seed_all(222)
-    np.random.seed(222)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    np.random.seed(args.seed)
 
     try:
         f = open("results.csv", "w")
     except FileNotFoundError:
         f = open("results.csv", "x")
 
-    print(args)
-    f.write("Steps,loss,acc,te_loss,te_acc\n")
+    f.write("Steps,tr_loss,tr_acc,val_loss,val_acc,te_loss,te_acc\n")
 
     config = [
         ('conv2d', [32, 3, args.kernel_size, args.kernel_size, 1, 0]),
@@ -51,67 +67,83 @@ def main():
         ('linear', [args.n_way, 32 * (68 - 2 * (args.kernel_size // 2) * args.vvs_depth) ** 2])
     ]
 
-    device = torch.device('cuda')
-    maml = Meta(args, config).to(device)
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    model = Meta(args, config).to(device)
 
-    tmp = filter(lambda x: x.requires_grad, maml.parameters())
+    tmp = filter(lambda x: x.requires_grad, model.parameters())
     num = sum(map(lambda x: np.prod(x.shape), tmp))
-    print(maml)
-    print('Total trainable tensors:', num)
+    if args.verbose:
+        print(args)
+        print(model)
+        print('Total trainable tensors:', num)
 
     # batchsz here means total episode number
+    print("\nGathering Datasets:")
     mini = MiniImagenet('miniimagenet/', mode='train', n_way=args.n_way, k_shot=args.k_spt,
-                        k_query=args.k_qry,
-                        batchsz=10000, resize=args.imgsz)
+                        k_query=args.k_qry, batchsz=10000, resize=args.imgsz)
+    mini_train_eval = MiniImagenet('miniimagenet/', mode='train', n_way=args.n_way, k_shot=args.k_spt,
+                                   k_query=args.k_qry, batchsz=args.eval_steps, resize=args.imgsz)
+    mini_val = MiniImagenet('miniimagenet/', mode='val', n_way=args.n_way, k_shot=args.k_spt,
+                            k_query=args.k_qry, batchsz=args.eval_steps, resize=args.imgsz)
     mini_test = MiniImagenet('miniimagenet/', mode='test', n_way=args.n_way, k_shot=args.k_spt,
-                             k_query=args.k_qry,
-                             batchsz=100, resize=args.imgsz)
+                             k_query=args.k_qry, batchsz=args.eval_steps, resize=args.imgsz)
 
-    best_train_loss = 0
+    print("\nMeta-Training:")
+    best_test_acc = 0
     pruning_factor = 0
-    for epoch in range(args.epoch//10000):
+    epoch_bar = tqdm(range(args.epoch//10000), desc="Training", total=len(range(args.epoch//10)))
+    for epoch in epoch_bar:
         # fetch meta_batchsz num of episode each time
         db = DataLoader(mini, args.task_num, shuffle=True, num_workers=1, pin_memory=True)
 
-        num_steps = len(db)
-        print ("\n\nStarting Training...")
-        t = tqdm(enumerate(db), desc=f"Epoch {epoch}", total=num_steps)
-        for step, (x_spt, y_spt, x_qry, y_qry) in t:
+        task_bar = tqdm(enumerate(db), desc=f"Epoch {epoch}", total=len(db), leave=False)
+        for step, (x_spt, y_spt, x_qry, y_qry) in task_bar:
+            total_steps = len(db) * epoch + step + 1
 
+            # Perform training for each task
             x_spt, y_spt, x_qry, y_qry = x_spt.to(device), y_spt.to(device), x_qry.to(device), y_qry.to(device)
+            model(x_spt, y_spt, x_qry, y_qry)                                          
 
-            loss, accs = maml(x_spt, y_spt, x_qry, y_qry)
+            if total_steps % args.save_summary_steps == 0:  # evaluation
 
-            if step % args.save_summary_steps == 0:  # evaluation
-                f.write(f"{epoch*num_steps + step},{loss},{accs[-1]},")
+                # Get test metrics
+                te_accs, te_losses = evaluate(model, mini_test, device)
+                te_acc = np.array(te_accs).mean(axis=0).astype(np.float16)
+                te_loss = np.array(te_losses).mean(axis=0).astype(np.float16)
 
-                db_test = DataLoader(mini_test, 1, shuffle=True, num_workers=1, pin_memory=True)
-                accs_all_test, losses = [], []
+                # Get validation metrics
+                val_accs, val_losses = evaluate(model, mini_val, device, "Eval Val")
+                val_acc = np.array(val_accs).mean(axis=0).astype(np.float16)
+                val_loss = np.array(val_losses).mean(axis=0).astype(np.float16)
 
-                for x_spt, y_spt, x_qry, y_qry in db_test:
-                    x_spt, y_spt, x_qry, y_qry = x_spt.squeeze(0).to(device), y_spt.squeeze(0).to(device), \
-                                                 x_qry.squeeze(0).to(device), y_qry.squeeze(0).to(device)
+                # Get train metrics
+                tr_accs, tr_losses = evaluate(model, mini_train_eval, device, "Eval Train")
+                tr_acc = np.array(tr_accs).mean(axis=0).astype(np.float16)
+                tr_loss = np.array(tr_losses).mean(axis=0).astype(np.float16)
 
-                    loss, accs = maml.finetunning(x_spt, y_spt, x_qry, y_qry)
-                    accs_all_test.append(accs)
-                    losses.append(loss)
+                # Update Task tqdm bar
+                task_bar.set_postfix({
+                    'step': total_steps, 
+                    'tr acc': tr_acc,
+                    'val_acc': val_acc,
+                    'te_acc': te_acc
+                })
+                f.write(f"{total_steps},{tr_loss},{tr_acc},{val_loss},{val_acc},{te_loss},{te_acc}\n")
 
-                # [b, update_step+1]
-                # accs_log = np.array(accs_all_test).mean(axis=0).astype(np.float16)
-                accs_list = list(map(lambda a: a[-1], accs_all_test))
-                te_acc = np.array(accs_list).mean(axis=0).astype(np.float16)
-                losses = np.array(losses).mean(axis=0).astype(np.float16)
-                t.set_postfix({'step': epoch*num_steps + step, 'tr acc': accs[-1], 'te_loss': losses, 'te_acc': te_acc})
-                f.write(f"{losses},{te_acc}\n")
-
-                if te_acc > best_train_loss:
-                    best_train_loss = te_acc
+                if te_acc > best_test_acc:
+                    best_test_acc = te_acc
                     pruning_factor = 0
                 else:
                     pruning_factor += 1
 
                 if pruning_factor == args.pruning_factor:
                     break
+
+                # Update tqdm 
+                epoch_bar.set_postfix({
+                    'best_te_acc': best_test_acc,
+                    'pruning': pruning_factor
+                })
 
         if pruning_factor == args.pruning_factor:
             break
@@ -134,10 +166,13 @@ if __name__ == '__main__':
     argparser.add_argument('--update_step', type=int, help='task-level inner update steps', default=1)
     argparser.add_argument('--update_step_test', type=int, help='update steps for finetunning', default=1)
     argparser.add_argument('--ret_channels', type=int, help='number of channels at Retina Output', default=32)
-    argparser.add_argument('--vvs_depth', type=int, help='number of conv layers for VVSNet', default=4)
+    argparser.add_argument('--vvs_depth', type=int, help='number of conv layers for VVSNet', default=8)
     argparser.add_argument('--kernel_size', type=int, help='size of the convolutional kernels', default=9)
+    argparser.add_argument('--eval_steps', type=int, help='number of batches to iterate in test mode', default=500)
     argparser.add_argument('--save_summary_steps', type=int, help='frequence to log model evaluation metrics', default=1000)
     argparser.add_argument('--pruning_factor', type=int, help='stop the training after this number of evaluations without accuracy increase', default=10)
+    argparser.add_argument('--verbose', type=int, help='print additional information', default=0)
+    argparser.add_argument('--seed', type=int, help='seed for reproducible results', default=42)
 
     args = argparser.parse_args()
 
