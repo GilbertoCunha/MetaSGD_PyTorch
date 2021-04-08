@@ -113,15 +113,13 @@ def main():
             model(x_spt, y_spt, x_qry, y_qry)                                
 
             if total_steps % args.save_summary_steps == 0:  # evaluation
-
                 # Get evaluation metrics
-                te_acc, te_loss = evaluate(model, mini_test, device)
-                val_acc, val_loss = evaluate(model, mini_val, device, "Eval Val")
                 tr_acc, tr_loss = evaluate(model, mini_train_eval, device, "Eval Train")
+                val_acc, val_loss = evaluate(model, mini_val, device, "Eval Val")
+                te_acc, te_loss = evaluate(model, mini_test, device)
 
                 # Update Task tqdm bar
                 metrics = {
-                    'step': total_steps, 
                     'tr acc': tr_acc,
                     'val_acc': val_acc,
                     'te_acc': te_acc
@@ -179,23 +177,11 @@ if __name__ == '__main__':
     argparser.add_argument('--pruning', type=int, help='stop the training after this number of evaluations without accuracy increase', default=12)
     argparser.add_argument('--verbose', type=int, help='print additional information', default=0)
     argparser.add_argument('--seed', type=int, help='seed for reproducible results', default=42)
-    argparser.add_argument('--wandb_project', type=str, help='name of wandb project to log', default="Meta-SGD")
 
     args = argparser.parse_args()
 
     # Setup Weights and Biases logger and config hyperparams
-    wandb.init(project=args.wandb_project)
-    config = wandb.config
-    config.n_way = args.n_way
-    config.k_spt = args.k_spt
-    config.k_qry = args.k_qry
-    config.task_num = args.task_num
-    config.meta_lr = args.meta_lr
-    config.update_lr = args.update_lr
-    config.update_step = args.update_step
-    config.update_step_step = args.update_step_test
-    config.ret_channels = args.ret_channels
-    config.vvs_depth = args.vvs_depth
-    config.kernel_size = args.kernel_size
+    wandb.init(project="Meta-SGD")
+    wandb.config.update(args)
 
     main()
