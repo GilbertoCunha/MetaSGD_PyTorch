@@ -74,6 +74,10 @@ def main():
     # Choose PyTorch device and create the model
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     model = Meta(args, config).to(device)
+
+    # Setup Weights and Biases logger, config hyperparams and watch model
+    wandb.init(project="Meta-SGD")
+    wandb.config.update(args)
     wandb.watch(model)
 
     # Print additional information on the model
@@ -172,16 +176,12 @@ if __name__ == '__main__':
     argparser.add_argument('--ret_channels', type=int, help='number of channels at Retina Output', default=32)
     argparser.add_argument('--vvs_depth', type=int, help='number of conv layers for VVSNet', default=8)
     argparser.add_argument('--kernel_size', type=int, help='size of the convolutional kernels', default=9)
-    argparser.add_argument('--eval_steps', type=int, help='number of batches to iterate in test mode', default=500)
-    argparser.add_argument('--save_summary_steps', type=int, help='frequence to log model evaluation metrics', default=1000)
+    argparser.add_argument('--eval_steps', type=int, help='number of batches to iterate in test mode', default=200)
+    argparser.add_argument('--save_summary_steps', type=int, help='frequence to log model evaluation metrics', default=250)
     argparser.add_argument('--pruning', type=int, help='stop the training after this number of evaluations without accuracy increase', default=12)
     argparser.add_argument('--verbose', type=int, help='print additional information', default=0)
     argparser.add_argument('--seed', type=int, help='seed for reproducible results', default=42)
 
     args = argparser.parse_args()
-
-    # Setup Weights and Biases logger and config hyperparams
-    wandb.init(project="Meta-SGD")
-    wandb.config.update(args)
 
     main()
