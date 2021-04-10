@@ -1,3 +1,4 @@
+.gitignore
 backup
 miniimagenet
 omniglot
@@ -5,3 +6,4 @@ omniglot
 __pycache__
 results
 wandb
+results.csv
