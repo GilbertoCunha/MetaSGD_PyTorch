@@ -85,20 +85,29 @@ class Meta(nn.Module):
             logits = self.net(x_spt[i], vars=None, bn_training=True)
             loss = F.cross_entropy(logits, y_spt[i])
 
-            # this is the loss and accuracy before first update
-            with torch.no_grad():
-                # [setsz, nway]
+            # If there is no meta
+            if self.update_step == 0:
                 logits_q = self.net(x_qry[i], self.net.parameters(), bn_training=True)
                 loss_q = F.cross_entropy(logits_q, y_qry[i])
-                losses_q[0] += loss_q
+                losses_q[0] += (loss_q * querysz + loss * setsz) / (querysz + setsz)
 
                 pred_q = F.softmax(logits_q, dim=1).argmax(dim=1)
                 correct = torch.eq(pred_q, y_qry[i]).sum().item()
                 corrects[0] = corrects[0] + correct
+            else:
+                # this is the loss and accuracy before first update
+                with torch.no_grad():
+                    # [setsz, nway]
+                    logits_q = self.net(x_qry[i], self.net.parameters(), bn_training=True)
+                    loss_q = F.cross_entropy(logits_q, y_qry[i])
+                    losses_q[0] += loss_q
+
+                    pred_q = F.softmax(logits_q, dim=1).argmax(dim=1)
+                    correct = torch.eq(pred_q, y_qry[i]).sum().item()
+                    corrects[0] = corrects[0] + correct
 
             # this is the loss and accuracy after the first update
             # [setsz, nway]
-            if self.update_step > 0: # Apply meta-learning
                 grad = torch.autograd.grad(loss, self.net.parameters())
                 fast_weights = list(map(lambda p: p[1] - p[2] * p[0], zip(grad, self.net.parameters(), self.update_lr)))
                 logits_q = self.net(x_qry[i], fast_weights, bn_training=True)
@@ -175,6 +184,8 @@ class Meta(nn.Module):
             logits_q = net(x_qry, net.parameters(), bn_training=True)
             # [setsz]
             loss_q = F.cross_entropy(logits_q, y_qry)
+            if self.update_step_test == 0:
+                loss_q = (loss_q * querysz + loss * x_spt.size(0)) / (querysz + x_spt.size(0))
             pred_q = F.softmax(logits_q, dim=1).argmax(dim=1)
             # scalar
             correct = torch.eq(pred_q, y_qry).sum().item()
