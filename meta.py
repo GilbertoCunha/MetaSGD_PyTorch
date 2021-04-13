@@ -29,13 +29,19 @@ class Meta(nn.Module):
         self.net = Learner(config, args.imgc, args.imgsz)
 
         # Create learnable per parameter learning rate
-        self.update_lr = nn.ParameterList()
-        for p in self.net.parameters():
-            p_lr = args.update_lr * torch.ones_like(p)
-            self.update_lr.append(nn.Parameter(p_lr))
+        self.type = args.meta_sgd_type
+        if self.type == "vector":
+            self.update_lr = nn.ParameterList()
+            for p in self.net.parameters():
+                p_lr = args.update_lr * torch.ones_like(p)
+                self.update_lr.append(nn.Parameter(p_lr))
+            params = list(self.net.parameters()) + list(self.update_lr)
+        elif self.type == "scalar":
+            self.update_lr = nn.Parameter(torch.tensor(args.update_lr))
+            params = list(self.net.parameters())
+            params += [self.update_lr]
 
         # Define outer optimizer (also optimize lr)
-        params = list(self.net.parameters()) + list(self.update_lr)
         self.meta_optim = optim.Adam(params, lr=self.meta_lr)
 
     @staticmethod
@@ -61,6 +67,15 @@ class Meta(nn.Module):
                 g.data.mul_(clip_coef)
 
         return total_norm/counter
+    
+
+    def get_fast_weights(self, grad):
+        if self.type == "vector":
+            fast_weights = list(map(lambda p: p[1] - p[2] * p[0], zip(grad, self.net.parameters(), self.update_lr)))
+        elif self.type == "scalar":
+            fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, self.net.parameters())))
+            
+        return fast_weights
 
 
     def forward(self, x_spt, y_spt, x_qry, y_qry):
@@ -109,7 +124,7 @@ class Meta(nn.Module):
             # this is the loss and accuracy after the first update
             # [setsz, nway]
                 grad = torch.autograd.grad(loss, self.net.parameters())
-                fast_weights = list(map(lambda p: p[1] - p[2] * p[0], zip(grad, self.net.parameters(), self.update_lr)))
+                fast_weights = self.get_fast_weights(grad)
                 logits_q = self.net(x_qry[i], fast_weights, bn_training=True)
                 loss_q = F.cross_entropy(logits_q, y_qry[i])
                 losses_q[1] += loss_q
@@ -126,7 +141,7 @@ class Meta(nn.Module):
                     # 2. compute grad on theta_pi
                     grad = torch.autograd.grad(loss, fast_weights, create_graph=True, retain_graph=True)
                     # 3. theta_pi = theta_pi - train_lr * grad
-                    fast_weights = list(map(lambda p: p[1] - p[2] * p[0], zip(grad, fast_weights, self.update_lr)))
+                    fast_weights = self.get_fast_weights(grad)
 
                     logits_q = self.net(x_qry[i], fast_weights, bn_training=True)
                     # loss_q will be overwritten and just keep the loss_q on last update step.
@@ -194,7 +209,7 @@ class Meta(nn.Module):
         # this is the loss and accuracy after the first update
         if self.update_step_test > 0: # APPLY META
             grad = torch.autograd.grad(loss, net.parameters(), create_graph=True, retain_graph=True)
-            fast_weights = list(map(lambda p: p[1] - p[2] * p[0], zip(grad, net.parameters(), self.update_lr)))
+            fast_weights = self.get_fast_weights(grad)
 
             # [setsz, nway]
             logits_q = net(x_qry, fast_weights, bn_training=True)
@@ -213,7 +228,7 @@ class Meta(nn.Module):
                 # 2. compute grad on theta_pi
                 grad = torch.autograd.grad(loss, fast_weights, create_graph=True, retain_graph=True)
                 # 3. theta_pi = theta_pi - train_lr * grad
-                fast_weights = list(map(lambda p: p[1] - p[2] * p[0], zip(grad, fast_weights, self.update_lr)))
+                fast_weights = self.get_fast_weights(grad)
 
                 logits_q = net(x_qry, fast_weights, bn_training=True)
                 # loss_q will be overwritten and just keep the loss_q on last update step.
