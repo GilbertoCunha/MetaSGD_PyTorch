@@ -169,7 +169,7 @@ if __name__ == '__main__':
     argparser.add_argument('--imgsz', type=int, help='imgsz', default=84)
     argparser.add_argument('--imgc', type=int, help='imgc', default=3)
     argparser.add_argument('--task_num', type=int, help='meta batch size, namely task num', default=4)
-    argparser.add_argument('--meta_sgd_type', type=str, help='scalar, vector or matrix (for learning rate)', default="vector")
+    argparser.add_argument('--lr_type', type=str, help='scalar, vector or matrix (for learning rate)', default="vector")
     argparser.add_argument('--meta_lr', type=float, help='meta-level outer learning rate', default=1e-3)
     argparser.add_argument('--update_lr', type=float, help='task-level inner update learning rate', default=0.01)
     argparser.add_argument('--update_step', type=int, help='task-level inner update steps', default=1)

@@ -29,7 +29,7 @@ class Meta(nn.Module):
         self.net = Learner(config, args.imgc, args.imgsz)
 
         # Create learnable per parameter learning rate
-        self.type = args.meta_sgd_type
+        self.type = args.lr_type
         if self.type == "vector":
             self.update_lr = nn.ParameterList()
             for p in self.net.parameters():
