@@ -55,7 +55,7 @@ def main():
         ('bn', [32]),
         ('conv2d', [args.ret_channels, 32, args.kernel_size, args.kernel_size, 1, 0]),
         ('relu', [True]),
-        ('bn', [32]),
+        ('bn', [args.ret_channels]),
         ('conv2d', [32, args.ret_channels, args.kernel_size, args.kernel_size, 1, 0]),
         ('relu', [True]),
         ('bn', [32]),
