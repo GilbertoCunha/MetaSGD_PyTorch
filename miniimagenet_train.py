@@ -35,6 +35,13 @@ def evaluate(model, dataset, device, desc="Eval Test"):
     return acc, loss
 
 
+def getOutputDims(args):
+    imgSize = args.imgsz
+    for _ in range(args.vvs_depth + 2):
+        imgSize = (imgSize - args.kernel_size) + 1
+    return 32 * (imgSize ** 2)
+
+
 def main():
     # Manually seed torch and numpy for reproducible results
     torch.manual_seed(args.seed)
@@ -68,7 +75,7 @@ def main():
         ]
     config += [
         ('flatten', []),
-        ('linear', [args.n_way, 32 * (68 - 2 * (args.kernel_size // 2) * args.vvs_depth) ** 2])
+        ('linear', [args.n_way, getOutputDims(args)])
     ]
 
     # Choose PyTorch device and create the model
