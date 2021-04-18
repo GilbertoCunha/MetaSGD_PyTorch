@@ -41,7 +41,7 @@ def getOutputDims(args):
         imgSize = (imgSize - args.kernel_size) + 1
         if args.max_pool == "yes":
             imgSize /= 2
-    return 32 * (imgSize ** 2)
+    return int(32 * (imgSize ** 2))
 
 
 def defineModel(args):
@@ -53,14 +53,14 @@ def defineModel(args):
         ('bn', [32])
     ]
     if args.max_pool == "yes": 
-        config += [('max_pool', [2, 2, 0])]
+        config += [('max_pool2d', [2, 2, 0])]
     config += [
         ('conv2d', [args.ret_channels, 32, args.kernel_size, args.kernel_size, 1, 0]),
         ('relu', [True]),
         ('bn', [args.ret_channels])
     ]
     if args.max_pool == "yes": 
-        config += [('max_pool', [2, 2, 0])]
+        config += [('max_pool2d', [2, 2, 0])]
     
     # Add First VVS Layer
     config += [
@@ -69,7 +69,7 @@ def defineModel(args):
         ('bn', [32]),
     ]
     if args.max_pool == "yes": 
-        config += [('max_pool', [2, 2, 0])]
+        config += [('max_pool2d', [2, 2, 0])]
     
     # Add VVS Net
     for _ in range(args.vvs_depth-1):
