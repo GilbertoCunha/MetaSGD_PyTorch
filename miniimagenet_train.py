@@ -39,21 +39,39 @@ def getOutputDims(args):
     imgSize = args.imgsz
     for _ in range(args.vvs_depth + 2):
         imgSize = (imgSize - args.kernel_size) + 1
+        if args.max_pool == "yes":
+            imgSize /= 2
     return 32 * (imgSize ** 2)
 
 
 def defineModel(args):
+    
+    # Add Retina Net
     config = [
         ('conv2d', [32, 3, args.kernel_size, args.kernel_size, 1, 0]),
         ('relu', [True]),
-        ('bn', [32]),
+        ('bn', [32])
+    ]
+    if args.max_pool == "yes": 
+        config += [('max_pool', [2, 2, 0])]
+    config += [
         ('conv2d', [args.ret_channels, 32, args.kernel_size, args.kernel_size, 1, 0]),
         ('relu', [True]),
-        ('bn', [args.ret_channels]),
+        ('bn', [args.ret_channels])
+    ]
+    if args.max_pool == "yes": 
+        config += [('max_pool', [2, 2, 0])]
+    
+    # Add First VVS Layer
+    config += [
         ('conv2d', [32, args.ret_channels, args.kernel_size, args.kernel_size, 1, 0]),
         ('relu', [True]),
         ('bn', [32]),
     ]
+    if args.max_pool == "yes": 
+        config += [('max_pool', [2, 2, 0])]
+    
+    # Add VVS Net
     for _ in range(args.vvs_depth-1):
         config += [
             ('conv2d', [32, 32, args.kernel_size, args.kernel_size, 1, 0]),
