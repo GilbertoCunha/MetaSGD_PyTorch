@@ -40,7 +40,7 @@ def getOutputDims(args):
     for _ in range(args.vvs_depth + 2):
         imgSize = (imgSize - args.kernel_size) + 1
         if args.max_pool == "yes":
-            imgSize /= 2
+            imgSize = imgSize // 2
     return int(32 * (imgSize ** 2))
 
 
