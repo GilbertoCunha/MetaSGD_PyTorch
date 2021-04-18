@@ -149,7 +149,6 @@ class Learner(nn.Module):
                 # print(name, param, '\tout:', x.shape)
             elif name == 'linear':
                 w, b = vars[idx], vars[idx + 1]
-                print(x.shape, w.shape, b.shape)
                 x = F.linear(x, w, b)
                 idx += 2
                 # print('forward:', idx, x.norm().item())
