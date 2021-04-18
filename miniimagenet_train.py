@@ -42,20 +42,7 @@ def getOutputDims(args):
     return 32 * (imgSize ** 2)
 
 
-def main():
-    # Manually seed torch and numpy for reproducible results
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
-    np.random.seed(args.seed)
-
-    # Open csv file to write for metric logging
-    try:
-        f = open("results.csv", "w")
-    except FileNotFoundError:
-        f = open("results.csv", "x")
-    f.write("Steps,tr_loss,tr_acc,val_loss,val_acc,te_loss,te_acc\n")
-
-    # Define the model
+def defineModel(args):
     config = [
         ('conv2d', [32, 3, args.kernel_size, args.kernel_size, 1, 0]),
         ('relu', [True]),
@@ -73,14 +60,32 @@ def main():
             ('relu', [True]),
             ('bn', [32]),
         ]
+        if args.max_pool == "yes":
+            config += [('max_pool2d', [2, 2, 0])]
     config += [
         ('flatten', []),
         ('linear', [args.n_way, getOutputDims(args)])
     ]
+    return config
+
+
+def main():
+    # Manually seed torch and numpy for reproducible results
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    np.random.seed(args.seed)
+
+    # Open csv file to write for metric logging
+    try:
+        f = open("results.csv", "w")
+    except FileNotFoundError:
+        f = open("results.csv", "x")
+    f.write("Steps,tr_loss,tr_acc,val_loss,val_acc,te_loss,te_acc\n")
+
 
     # Choose PyTorch device and create the model
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    model = Meta(args, config).to(device)
+    model = Meta(args, defineModel(args)).to(device)
 
     # Setup Weights and Biases logger, config hyperparams and watch model
     wandb.init(project="Meta-SGD")
@@ -184,6 +189,7 @@ if __name__ == '__main__':
     argparser.add_argument('--ret_channels', type=int, help='number of channels at Retina Output', default=32)
     argparser.add_argument('--vvs_depth', type=int, help='number of conv layers for VVSNet', default=8)
     argparser.add_argument('--kernel_size', type=int, help='size of the convolutional kernels', default=9)
+    argparser.add_argument('--max_pool', type=str, help='use max-pooling for each conv layer', default="no")
     argparser.add_argument('--eval_steps', type=int, help='number of batches to iterate in test mode', default=200)
     argparser.add_argument('--save_summary_steps', type=int, help='frequence to log model evaluation metrics', default=250)
     argparser.add_argument('--pruning', type=int, help='stop the training after this number of evaluations without accuracy increase', default=12)
