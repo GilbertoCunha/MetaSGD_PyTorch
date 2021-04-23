@@ -107,8 +107,14 @@ def main():
 
     # Setup Weights and Biases logger, config hyperparams and watch model
     wandb.init(project="Meta-SGD")
+    name = f"N{args.n_way}K{args.k_spt}"
+    if args.update_step > 0:
+        name += "Meta"
+    name += f"Ret{args.ret_channels}VVS{args.vvs_depth}KS{args.kernel_size}"
+    wandb.run.name = name
     wandb.config.update(args)
     wandb.watch(model)
+    print(f"RUN NAME: {name}")
 
     # Print additional information on the model
     if args.verbose:
