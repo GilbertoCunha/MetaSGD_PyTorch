@@ -1,9 +1,0 @@
-.gitignore
-backup
-miniimagenet
-omniglot
-.idea
-__pycache__
-results
-wandb
-results.csv

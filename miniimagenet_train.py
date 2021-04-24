@@ -22,8 +22,7 @@ def evaluate(model, dataset, device, desc="Eval Test"):
 
     eval_bar = tqdm(db, desc=desc, total=len(db), leave=False)
     for x_spt, y_spt, x_qry, y_qry in eval_bar:
-        x_spt, y_spt, x_qry, y_qry = x_spt.squeeze(0).to(device), y_spt.squeeze(0).to(device), \
-                                        x_qry.squeeze(0).to(device), y_qry.squeeze(0).to(device)
+        x_spt, y_spt, x_qry, y_qry = x_spt.squeeze(0).to(device), y_spt.squeeze(0).to(device), x_qry.squeeze(0).to(device), y_qry.squeeze(0).to(device)
         loss, accs = model.finetunning(x_spt, y_spt, x_qry, y_qry)
         all_accs.append(accs)
         losses.append(loss)
